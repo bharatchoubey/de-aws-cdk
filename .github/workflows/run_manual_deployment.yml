@@ -8,11 +8,40 @@ on:
       environment:
         description: The environment to deploy to
         required: true
+        type: string
         default: "dev"
+      module:
+        description: The module to deploy
+        required: true
+        type: string
+        default: "aws"
 
 jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+    setup_python:
+        runs-on: ubuntu-latest
+        steps:
+            - name: install python
+              uses: actions/setup-python@v4
+              with:
+                python-version: "3.10"
+    deploy:
+        runs-on: ubuntu-latest
+        needs: [setup_python]
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v3
+            - name: Deploy
+              run: |
+                echo "Deploying to ${{ inputs.environment }}"
+            - name: install dependencies
+              run: |
+                pip install -r ./aws/requirements.
+            
+            
+#   deploy:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v3
+    
+    
