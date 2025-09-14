@@ -35,7 +35,7 @@ jobs:
                 echo "Deploying to ${{ inputs.environment }}"
             - name: install dependencies
               run: |
-                pip install -r ./aws/requirements.
+                pip install -r ./${{ inputs.module }}/requirements.
             
             
 #   deploy:
