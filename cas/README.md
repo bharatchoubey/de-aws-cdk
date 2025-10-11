@@ -38,11 +38,67 @@ cas/
 
 ### 1. Prerequisites
 
+#### Option A: Docker Setup (Recommended)
+- Docker 20.10+
+- Docker Compose 2.0+
+- Git
+
+#### Option B: Local Development Setup
 - Python 3.8+
 - PostgreSQL 12+
 - pip (Python package manager)
 
 ### 2. Installation
+
+#### Option A: Docker Setup (Recommended)
+
+1. **Clone and navigate to the project:**
+   ```bash
+   cd cas/
+   ```
+
+2. **Copy environment configuration:**
+   ```bash
+   cp env.example .env
+   # Edit .env with your preferred settings
+   ```
+
+3. **Start the application:**
+   ```bash
+   # Using the management script (recommended)
+   ./docker-manage.sh start
+   
+   # Or using docker-compose directly
+   docker-compose up -d
+   ```
+
+4. **Initialize the database:**
+   ```bash
+   # Run database migrations
+   ./docker-manage.sh migrate
+   
+   # Or manually
+   docker-compose exec cas_app flask db upgrade
+   ```
+
+5. **Verify the installation:**
+   ```bash
+   # Check service status
+   ./docker-manage.sh status
+   
+   # Test the health endpoint
+   curl http://localhost:5000/health
+   ```
+
+The API will be available at:
+- **Application**: `http://localhost:5000`
+- **API Documentation**: `http://localhost:5000/api/`
+- **Health Check**: `http://localhost:5000/health`
+- **Database**: `localhost:5432` (PostgreSQL)
+- **Redis**: `localhost:6379` (if enabled)
+- **Nginx**: `http://localhost:80` (if enabled)
+
+#### Option B: Local Development Setup
 
 1. **Clone and navigate to the project:**
    ```bash
@@ -83,6 +139,22 @@ cas/
 
 ### 3. Running the Application
 
+#### Docker (Recommended)
+```bash
+# Start all services
+./docker-manage.sh start
+
+# View logs
+./docker-manage.sh logs
+
+# Stop services
+./docker-manage.sh stop
+
+# Restart services
+./docker-manage.sh restart
+```
+
+#### Local Development
 ```bash
 export FLASK_APP=src.app:create_app
 export FLASK_ENV=development
@@ -201,10 +273,93 @@ curl -X GET "http://localhost:5000/api/configs?app_name=my-service&environment=d
 - SQL injection protection via SQLAlchemy ORM
 - CORS support for cross-origin requests
 
+## Docker Management
+
+The project includes a comprehensive Docker setup with helper scripts for easy management.
+
+### Docker Management Script
+
+Use the `docker-manage.sh` script for common operations:
+
+```bash
+# Start the application
+./docker-manage.sh start
+
+# Stop the application
+./docker-manage.sh stop
+
+# Restart the application
+./docker-manage.sh restart
+
+# View application logs
+./docker-manage.sh logs
+
+# View all service logs
+./docker-manage.sh logs-all
+
+# Build Docker images
+./docker-manage.sh build
+
+# Run database migrations
+./docker-manage.sh migrate
+
+# Create initial migration
+./docker-manage.sh init-migration
+
+# Reset database (WARNING: deletes all data)
+./docker-manage.sh reset-db
+
+# Check service status
+./docker-manage.sh status
+
+# Clean up Docker resources
+./docker-manage.sh cleanup
+
+# Show help
+./docker-manage.sh help
+```
+
+### Docker Services
+
+The Docker Compose setup includes:
+
+- **cas_app**: Flask application (port 5000)
+- **postgres**: PostgreSQL database (port 5432)
+- **redis**: Redis cache (port 6379) - optional
+- **nginx**: Reverse proxy (port 80) - optional
+
+### Environment Configuration
+
+Copy `env.example` to `.env` and configure:
+
+```bash
+cp env.example .env
+# Edit .env with your settings
+```
+
+Key environment variables:
+- `POSTGRES_DB`: Database name
+- `POSTGRES_USER`: Database user
+- `POSTGRES_PASSWORD`: Database password
+- `SECRET_KEY`: Flask secret key
+- `JWT_SECRET_KEY`: JWT signing key
+
+### Docker Volumes
+
+- `postgres_data`: Persistent PostgreSQL data
+- `redis_data`: Persistent Redis data
+- `./logs`: Application logs directory
+
 ## Development
 
 ### Running Tests
 
+#### Docker
+```bash
+docker-compose exec cas_app python -m pytest tests/
+```
+
+#### Local
 ```bash
 export FLASK_ENV=testing
 python -m pytest tests/
@@ -212,6 +367,19 @@ python -m pytest tests/
 
 ### Database Migrations
 
+#### Docker
+```bash
+# Create migration
+docker-compose exec cas_app flask db migrate -m "Description of changes"
+
+# Apply migration
+docker-compose exec cas_app flask db upgrade
+
+# Rollback migration
+docker-compose exec cas_app flask db downgrade
+```
+
+#### Local
 ```bash
 # Create migration
 flask db migrate -m "Description of changes"
@@ -224,6 +392,49 @@ flask db downgrade
 ```
 
 ## Production Deployment
+
+### Docker Production Deployment
+
+1. **Configure production environment:**
+   ```bash
+   # Set production environment variables
+   export FLASK_ENV=production
+   export SECRET_KEY=your-strong-secret-key
+   export JWT_SECRET_KEY=your-strong-jwt-secret
+   export POSTGRES_PASSWORD=your-strong-db-password
+   ```
+
+2. **Build and deploy:**
+   ```bash
+   # Build production images
+   ./docker-manage.sh build
+   
+   # Start production services
+   ./docker-manage.sh start
+   
+   # Run migrations
+   ./docker-manage.sh migrate
+   ```
+
+3. **Configure reverse proxy (Nginx):**
+   - Update `nginx.conf` with your domain
+   - Configure SSL certificates in `ssl/` directory
+   - Enable HTTPS in docker-compose.yml
+
+4. **Monitor and maintain:**
+   ```bash
+   # Check service health
+   ./docker-manage.sh status
+   
+   # View logs
+   ./docker-manage.sh logs
+   
+   # Update application
+   ./docker-manage.sh build
+   ./docker-manage.sh restart
+   ```
+
+### Traditional Production Deployment
 
 1. Set `FLASK_ENV=production` in your environment
 2. Use a strong `JWT_SECRET_KEY` and `SECRET_KEY`
