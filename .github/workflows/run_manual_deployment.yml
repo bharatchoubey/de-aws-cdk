@@ -30,7 +30,7 @@ jobs:
         steps:
             - name: Checkout code
               uses: actions/checkout@v3
-            - name: Install dependencies
+            - name: nstall dependencies
               run: |
                 pip install -r ./${{ inputs.module }}/requirements.txt
             
