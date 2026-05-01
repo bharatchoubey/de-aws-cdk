@@ -1,0 +1,40 @@
+environment: dev
+region: us-east-1
+
+# SSM Parameter Store — non-sensitive configuration values only.
+# For secrets and credentials, use AWS Secrets Manager.
+
+ssm:
+  parameters:
+    - name: /myapp/db/host
+      type: String
+      value: db.dev.example.com
+      description: "Database hostname for dev environment"
+      tier: Standard
+
+    - name: /myapp/db/port
+      type: String
+      value: "5432"
+      description: "Database port"
+      tier: Standard
+
+    - name: /myapp/db/name
+      type: String
+      value: myapp_dev
+      description: "Database name"
+      tier: Standard
+
+    - name: /myapp/db/allowed-envs
+      type: StringList
+      value:
+        - dev
+        - staging
+        - prod
+      description: "Allowed deployment environments"
+      tier: Standard
+
+    - name: /myapp/api/base-url
+      type: String
+      value: https://api.dev.example.com
+      description: "Base URL for the API"
+      tier: Standard
