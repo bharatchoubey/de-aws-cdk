@@ -56,7 +56,8 @@ aws/
     ├── stacks/
     │   ├── base.py                       # BaseServiceStack (abstract CDK Stack)
     │   ├── ssm_stack.py                  # SsmStack
-    │   └── secrets_manager_stack.py      # SecretsManagerStack
+    │   ├── secrets_manager_stack.py      # SecretsManagerStack
+    │   └── iam_stack.py                  # IamStack
     └── services/
         ├── base.py                       # BaseServiceConstruct (abstract CDK Construct)
         ├── ssm/
@@ -65,12 +66,28 @@ aws/
         │       ├── base.py               # BaseSsmParameter (strategy ABC)
         │       ├── string.py             # StringParameter
         │       └── string_list.py        # StringListParameter
-        └── secrets_manager/
-            ├── construct.py              # SecretConstruct
-            └── types/
-                ├── base.py               # BaseSecretType (strategy ABC)
-                ├── plain_text.py         # PlainTextSecret
-                └── key_value.py          # KeyValueSecret
+        ├── secrets_manager/
+        │   ├── env_resolver.py           # ${VAR} token resolver
+        │   ├── construct.py              # SecretConstruct
+        │   └── types/
+        │       ├── base.py               # BaseSecretType (strategy ABC)
+        │       ├── plain_text.py         # PlainTextSecret
+        │       ├── key_value.py          # KeyValueSecret
+        │       ├── generated.py          # GeneratedSecret
+        │       └── reference.py          # ReferenceSecret
+        └── iam/
+            ├── construct_role.py         # IamRoleConstruct
+            ├── construct_policy.py       # IamPolicyConstruct
+            ├── construct_oidc_provider.py# IamOidcProviderConstruct
+            ├── construct_group.py        # IamGroupConstruct
+            ├── construct_user.py         # IamUserConstruct
+            └── principals/
+                ├── base.py               # BasePrincipal (strategy ABC)
+                ├── service.py            # ServicePrincipal
+                ├── account.py            # AccountPrincipal
+                ├── arn.py                # ArnPrincipal
+                ├── federated.py          # FederatedPrincipal (OIDC / web identity)
+                └── saml.py               # SamlPrincipal (SAML 2.0)
 ```
 
 ---
@@ -127,6 +144,14 @@ CDK_ENV=prod cdk deploy --all
 
 ## Supported Services
 
+| Service | Config file | Purpose |
+|---|---|---|
+| SSM Parameter Store | `configs/{env}/ssm.yaml` | Non-sensitive configuration values |
+| Secrets Manager | `configs/{env}/secrets_manager.yaml` | Credentials and secrets |
+| IAM | `configs/{env}/iam.yaml` | Roles, policies, users, groups, OIDC providers |
+
+---
+
 ### SSM Parameter Store (non-sensitive config)
 
 Config file: `configs/{env}/ssm.yaml`
@@ -173,13 +198,16 @@ ssm:
 
 #### SSM Parameter field reference
 
-| Field | Required | Default | Description |
-|---|---|---|---|
-| `name` | Yes | — | Parameter path, must start with `/` |
-| `type` | Yes | — | `String` or `StringList` |
-| `value` | Yes | — | String for `String`; YAML list for `StringList` |
-| `description` | No | `""` | Free-text description shown in AWS console |
-| `tier` | No | `Standard` | `Standard` or `Advanced` |
+| Field | Applies to | Required | Default | Description |
+|---|---|---|---|---|
+| `name` | All | Yes | — | Parameter path, must start with `/` |
+| `type` | All | Yes | — | `String` or `StringList` |
+| `value` | All | Yes | — | String scalar for `String`; YAML list for `StringList` |
+| `description` | All | No | `""` | Free-text description shown in AWS console |
+| `tier` | All | No | `Standard` | `Standard` or `Advanced` |
+| `tags` | All | No | `{}` | Key/value tags applied to the parameter resource |
+| `allowed_pattern` | `String` only | No | `""` | Regex the value must match at creation time |
+| `data_type` | `String` only | No | `text` | `text` (default) or `aws:ec2:image` — the latter validates that the value is a real AMI ID |
 
 > **Note:** `SecureString` is not supported in this module by design.
 > Store all secrets in **AWS Secrets Manager**.
@@ -247,16 +275,24 @@ secrets_manager:
 
 #### Secrets Manager field reference
 
-| Field | Required for | Description |
-|---|---|---|
-| `name` | All | Secret name/path, must start with `/` |
-| `type` | All | `Generated`, `Reference`, `PlainText`, or `KeyValue` |
-| `description` | — | Free-text description shown in AWS console (optional) |
-| `value` | `PlainText`, `KeyValue` | String or mapping; use `${VAR}` for env injection |
-| `generate` | `Generated` | Sub-block controlling random value generation |
-| `generate.length` | — | Password length, minimum 8 (default: 32) |
-| `generate.exclude_characters` | — | Characters to exclude from generated value |
-| `generate.exclude_punctuation` | — | If true, strips all punctuation (default: false) |
+| Field | Applies to | Required | Description |
+|---|---|---|---|
+| `name` | All | Yes | Secret name/path, must start with `/` |
+| `type` | All | Yes | `Generated`, `Reference`, `PlainText`, or `KeyValue` |
+| `description` | All | No | Free-text description shown in AWS console |
+| `value` | `PlainText`, `KeyValue` | Yes | String or mapping; use `${VAR}` for env injection |
+| `tags` | All except `Reference` | No | Key/value tags applied to the secret resource |
+| `removal_policy` | All except `Reference` | No | `DESTROY` (default), `RETAIN`, or `SNAPSHOT`. Use `RETAIN` for production secrets to prevent accidental deletion. |
+| `kms_key_arn` | All except `Reference` | No | ARN of a customer-managed KMS key for at-rest encryption. Omit to use the AWS-managed key. |
+| `replica_regions` | All except `Reference` | No | List of AWS regions to replicate the secret into (e.g. `[us-west-2]`) |
+| `generate` | `Generated` | Yes | Sub-block controlling random value generation |
+| `generate.length` | `Generated` | No | Password length, minimum 8 (default: 32) |
+| `generate.exclude_characters` | `Generated` | No | Characters to exclude (e.g. `"/@\"' "` for connection strings) |
+| `generate.exclude_punctuation` | `Generated` | No | Strip all punctuation (default: false) |
+| `generate.include_space` | `Generated` | No | Allow spaces in the generated value (default: false) |
+| `generate.require_each_included_type` | `Generated` | No | Guarantee at least one uppercase, lowercase, digit, and symbol (default: false) |
+| `generate.secret_string_template` | `Generated` | No | JSON template for non-generated fields, e.g. `'{"username": "admin"}'`. Must be used with `generate_string_key`. |
+| `generate.generate_string_key` | `Generated` | No | JSON key where the generated password is placed. Required when `secret_string_template` is set. Produces RDS/Aurora rotation-compatible secrets. |
 
 #### Env var injection
 
@@ -309,6 +345,224 @@ export AWS_DEFAULT_REGION=us-east-1
 aws configure --profile myprofile
 export AWS_PROFILE=myprofile
 ```
+
+---
+
+### IAM
+
+Config file: `configs/{env}/iam.yaml`
+
+Manages all core IAM resource types from a single config file.
+All sections are optional — define only the resources your environment needs.
+
+#### Resource types
+
+| Section | AWS Resource | Purpose |
+|---|---|---|
+| `oidc_providers` | `iam.OpenIdConnectProvider` | GitHub Actions OIDC, EKS IRSA, Cognito federation |
+| `groups` | `iam.Group` | Attach permissions to sets of users |
+| `users` | `iam.User` | IAM users (no passwords/keys in config) |
+| `roles` | `iam.Role` | Service, account, federated, SAML, and composite trust |
+| `policies` | `iam.ManagedPolicy` | Standalone reusable permission sets |
+
+#### Principal types (`assumed_by`)
+
+| Type | When to use | `principal` value |
+|---|---|---|
+| `service` | AWS service assumes the role | `ec2.amazonaws.com`, `lambda.amazonaws.com`, etc. |
+| `account` | All identities in an AWS account | AWS account ID string e.g. `"123456789012"` |
+| `arn` | Specific IAM user/role ARN | Full ARN |
+| `federated` | OIDC / web identity (GitHub Actions, EKS pods) | OIDC provider URL |
+| `saml` | SAML 2.0 enterprise SSO (Okta, Azure AD) | SAML provider ARN |
+
+For **composite** trust (multiple principals on one role), supply a YAML list under `assumed_by`.
+
+#### Schema
+
+```yaml
+environment: dev
+region: us-east-1
+
+iam:
+
+  # ── OIDC Identity Providers ────────────────────────────────────────────
+  oidc_providers:
+    - name: github-actions-oidc
+      url: https://token.actions.githubusercontent.com   # must be HTTPS
+      client_ids:
+        - sts.amazonaws.com
+      thumbprints: []                                    # optional for public providers
+
+  # ── Groups ─────────────────────────────────────────────────────────────
+  groups:
+    - name: myapp-developers
+      path: /myapp/                  # optional, default "/"
+      managed_policies:
+        - arn:aws:iam::aws:policy/ReadOnlyAccess
+
+  # ── Users ──────────────────────────────────────────────────────────────
+  users:
+    - name: myapp-svc-account
+      path: /myapp/service-accounts/
+      groups:                        # must be group names defined above
+        - myapp-developers
+      managed_policies:
+        - arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess
+      tags:
+        team: platform
+
+  # ── Roles ──────────────────────────────────────────────────────────────
+  roles:
+
+    # Single service principal
+    - name: myapp-lambda-role
+      description: "Lambda execution role"
+      path: /myapp/
+      permission_boundary: arn:aws:iam::aws:policy/PowerUserAccess  # optional
+      assumed_by:
+        type: service
+        principal: lambda.amazonaws.com
+      managed_policies:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      inline_policies:
+        - name: SsmAccess
+          statements:
+            - effect: Allow
+              sid: ReadParams               # optional
+              actions: [ssm:GetParameter]
+              resources: [arn:aws:ssm:*:*:parameter/myapp/*]
+            - effect: Deny
+              not_actions: [ssm:GetParameter]   # inverse — deny everything else
+              not_resources: ["*"]
+      max_session_duration_hours: 1
+      tags:
+        team: backend
+
+    # Composite principal — EC2 and Lambda share the same role
+    - name: myapp-shared-role
+      assumed_by:
+        - type: service
+          principal: ec2.amazonaws.com
+        - type: service
+          principal: lambda.amazonaws.com
+      managed_policies:
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+
+    # Federated — GitHub Actions OIDC keyless CI/CD
+    - name: myapp-github-deploy-role
+      assumed_by:
+        type: federated
+        principal: token.actions.githubusercontent.com
+        conditions:
+          StringEquals:
+            token.actions.githubusercontent.com:aud: sts.amazonaws.com
+          StringLike:
+            token.actions.githubusercontent.com:sub: repo:myorg/myrepo:*
+      managed_policies:
+        - arn:aws:iam::aws:policy/PowerUserAccess
+
+    # SAML — enterprise SSO
+    - name: myapp-sso-role
+      assumed_by:
+        type: saml
+        principal: arn:aws:iam::123456789012:saml-provider/MyProvider
+        conditions:
+          StringEquals:
+            SAML:aud: https://signin.aws.amazon.com/saml
+      managed_policies:
+        - arn:aws:iam::aws:policy/ReadOnlyAccess
+      max_session_duration_hours: 8
+
+  # ── Managed Policies ───────────────────────────────────────────────────
+  policies:
+    - name: myapp-ssm-read-policy
+      description: "SSM read access for myapp"
+      path: /myapp/
+      tags:
+        team: platform
+      statements:
+        - effect: Allow
+          actions:
+            - ssm:GetParameter
+            - ssm:GetParametersByPath
+          resources:
+            - arn:aws:ssm:*:*:parameter/myapp/*
+          conditions:
+            StringEquals:
+              aws:RequestedRegion: us-east-1
+```
+
+#### Field reference
+
+**OIDC Provider**
+
+| Field | Required | Description |
+|---|---|---|
+| `name` | Yes | Logical identifier (becomes construct ID) |
+| `url` | Yes | HTTPS OIDC provider URL |
+| `client_ids` | Yes | Allowed audiences (usually `sts.amazonaws.com`) |
+| `thumbprints` | No | Server certificate thumbprints (auto-fetched for public providers) |
+
+**Group**
+
+| Field | Required | Description |
+|---|---|---|
+| `name` | Yes | IAM group name |
+| `path` | No | IAM path, default `/` |
+| `managed_policies` | No | List of managed policy ARNs to attach |
+
+**User**
+
+| Field | Required | Description |
+|---|---|---|
+| `name` | Yes | IAM user name |
+| `path` | No | IAM path, default `/` |
+| `groups` | No | Group names (must be defined in the same YAML) |
+| `managed_policies` | No | Managed policy ARNs to attach directly |
+| `tags` | No | Key/value tags |
+
+> Passwords and access keys are excluded by design. Credentials must never be stored in config files.
+
+**Role**
+
+| Field | Required | Description |
+|---|---|---|
+| `name` | Yes | IAM role name |
+| `assumed_by` | Yes | Single `{type, principal}` dict **or** a list for composite trust |
+| `assumed_by[].type` | Yes | `service`, `account`, `arn`, `federated`, or `saml` |
+| `assumed_by[].principal` | Yes | Service URL, account ID, ARN, OIDC URL, or SAML ARN |
+| `assumed_by[].conditions` | No | Trust policy conditions (for `federated` / `saml`) |
+| `description` | No | Free-text description |
+| `path` | No | IAM path, default `/` |
+| `permission_boundary` | No | Managed policy ARN that caps the role's max permissions |
+| `managed_policies` | No | List of managed policy ARNs |
+| `inline_policies` | No | Embedded policy documents |
+| `max_session_duration_hours` | No | 1–12, default `1` |
+| `tags` | No | Key/value tags |
+
+**Managed Policy**
+
+| Field | Required | Description |
+|---|---|---|
+| `name` | Yes | Policy name |
+| `statements` | Yes | List of policy statements |
+| `description` | No | Free-text description |
+| `path` | No | IAM path, default `/` |
+| `tags` | No | Key/value tags |
+
+**Policy Statement** (used in inline policies and managed policies)
+
+| Field | Required | Description |
+|---|---|---|
+| `effect` | Yes | `Allow` or `Deny` |
+| `actions` | Yes* | List of IAM actions (`s3:GetObject`, etc.) |
+| `resources` | Yes* | List of resource ARNs |
+| `not_actions` | No | Inverse action set (use with permission boundaries) |
+| `not_resources` | No | Inverse resource set |
+| `sid` | No | Statement identifier |
+| `conditions` | No | IAM condition key-value map |
+
+\* One of `actions`/`not_actions` and one of `resources`/`not_resources` must be provided.
 
 ---
 

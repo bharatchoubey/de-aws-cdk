@@ -10,6 +10,10 @@ from .base import BaseConfig
 VALID_TYPES = {"String", "StringList"}
 VALID_TIERS = {"Standard", "Advanced"}
 
+# String-only: StringList does not support allowed_pattern or data_type.
+# aws:ec2:image causes AWS to validate the value is a valid AMI ID.
+VALID_DATA_TYPES = {"text", "aws:ec2:image"}
+
 
 @dataclass
 class SsmParameterConfig:
@@ -21,6 +25,19 @@ class SsmParameterConfig:
 
     Validation is strict: unknown types or tiers raise immediately so
     CDK synthesis never proceeds with a bad config.
+
+    Fields:
+        name:            Parameter path — must start with '/'.
+        type:            'String' or 'StringList'.
+        value:           String scalar or YAML list (for StringList).
+        description:     Free-text description shown in the AWS console.
+        tier:            'Standard' (default) or 'Advanced'.
+        tags:            Key/value tags applied to the parameter resource.
+        allowed_pattern: Regex the value must match at creation time.
+                         Only valid for String parameters.
+        data_type:       'text' (default) or 'aws:ec2:image'.
+                         Use 'aws:ec2:image' so AWS validates and resolves
+                         AMI IDs automatically. Only valid for String parameters.
     """
 
     name: str
@@ -28,6 +45,9 @@ class SsmParameterConfig:
     value: Union[str, list]
     description: str = ""
     tier: str = "Standard"
+    tags: dict[str, str] = field(default_factory=dict)
+    allowed_pattern: str = ""
+    data_type: str = "text"
 
     def __post_init__(self) -> None:
         self.validate()
@@ -53,6 +73,21 @@ class SsmParameterConfig:
         if self.type == "String" and not isinstance(self.value, str):
             raise ValueError(
                 f"SSM parameter '{self.name}' has type String but 'value' is not a string."
+            )
+        if self.type == "StringList" and self.allowed_pattern:
+            raise ValueError(
+                f"SSM parameter '{self.name}': 'allowed_pattern' is only supported for "
+                f"String parameters, not StringList."
+            )
+        if self.type == "StringList" and self.data_type != "text":
+            raise ValueError(
+                f"SSM parameter '{self.name}': 'data_type' is only supported for "
+                f"String parameters, not StringList."
+            )
+        if self.data_type not in VALID_DATA_TYPES:
+            raise ValueError(
+                f"SSM parameter '{self.name}' 'data_type' must be one of "
+                f"{VALID_DATA_TYPES}. Got: '{self.data_type}'"
             )
 
     @property
@@ -81,17 +116,6 @@ class SsmConfig(BaseConfig):
 
     @classmethod
     def from_dict(cls, environment: str, region: str, raw: dict) -> "SsmConfig":
-        """
-        Factory — builds a fully validated SsmConfig from the parsed YAML dict.
-
-        Args:
-            environment: resolved environment name (e.g. 'dev')
-            region: AWS region string
-            raw: the 'ssm' block from the YAML file
-
-        Returns:
-            Validated SsmConfig instance
-        """
         raw_params = raw.get("parameters", [])
         parameters = [
             SsmParameterConfig(
@@ -100,6 +124,9 @@ class SsmConfig(BaseConfig):
                 value=p["value"],
                 description=p.get("description", ""),
                 tier=p.get("tier", "Standard"),
+                tags=p.get("tags", {}),
+                allowed_pattern=p.get("allowed_pattern", ""),
+                data_type=p.get("data_type", "text"),
             )
             for p in raw_params
         ]

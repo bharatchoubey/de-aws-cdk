@@ -1,0 +1,218 @@
+environment: dev
+region: us-east-1
+
+iam:
+
+  # ── OIDC Identity Providers ────────────────────────────────────────────────
+  # Feature 5: IAM OIDC Identity Provider
+  oidc_providers:
+
+    # GitHub Actions — keyless CI/CD without long-lived AWS access keys
+    - name: github-actions-oidc
+      url: https://token.actions.githubusercontent.com
+      client_ids:
+        - sts.amazonaws.com
+
+    # EKS cluster OIDC — enables IRSA (pod-level IAM roles)
+    - name: eks-cluster-oidc
+      url: https://oidc.eks.us-east-1.amazonaws.com/id/EXAMPLE12345
+      client_ids:
+        - sts.amazonaws.com
+      thumbprints:
+        - 9e99a48a9960b14926bb7f3b02e22da2b0ab7280
+
+  # ── Groups ────────────────────────────────────────────────────────────────
+  # Feature 6: IAM Groups
+  groups:
+
+    - name: myapp-dev-developers
+      path: /myapp/
+      managed_policies:
+        - arn:aws:iam::aws:policy/ReadOnlyAccess
+
+    - name: myapp-dev-admins
+      path: /myapp/
+      managed_policies:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+
+  # ── Users ─────────────────────────────────────────────────────────────────
+  # Feature 6: IAM Users
+  users:
+
+    - name: myapp-dev-svc-account
+      path: /myapp/service-accounts/
+      groups:
+        - myapp-dev-developers
+      managed_policies:
+        - arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess
+      tags:
+        team: platform
+        environment: dev
+
+    - name: myapp-dev-admin-user
+      path: /myapp/admins/
+      groups:
+        - myapp-dev-admins
+      tags:
+        team: platform
+        environment: dev
+
+  # ── Roles ─────────────────────────────────────────────────────────────────
+  roles:
+
+    # Single service principal (EC2)
+    - name: myapp-dev-ec2-role
+      description: "EC2 instance role for myapp dev"
+      path: /myapp/
+      assumed_by:
+        type: service
+        principal: ec2.amazonaws.com
+      managed_policies:
+        - arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess
+      inline_policies:
+        - name: SecretsReadAccess
+          statements:
+            - effect: Allow
+              sid: ReadAppSecrets
+              actions:
+                - secretsmanager:GetSecretValue
+                - secretsmanager:DescribeSecret
+              resources:
+                - arn:aws:secretsmanager:*:*:secret:/myapp/*
+      tags:
+        team: platform
+        environment: dev
+
+    # Feature 2: tags + Feature 4: path + Feature 1: permission_boundary
+    - name: myapp-dev-lambda-role
+      description: "Lambda execution role with permission boundary"
+      path: /myapp/lambda/
+      permission_boundary: arn:aws:iam::aws:policy/PowerUserAccess
+      assumed_by:
+        type: service
+        principal: lambda.amazonaws.com
+      managed_policies:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      inline_policies:
+        - name: SsmAccess
+          statements:
+            - effect: Allow
+              actions:
+                - ssm:GetParameter
+                - ssm:GetParametersByPath
+              resources:
+                - arn:aws:ssm:*:*:parameter/myapp/*
+            # not_actions example — deny everything except listed
+            - effect: Deny
+              not_actions:
+                - ssm:GetParameter
+              not_resources:
+                - "*"
+      tags:
+        team: backend
+        environment: dev
+
+    # Feature 3: Composite principal — both EC2 and Lambda can assume this role
+    - name: myapp-dev-shared-role
+      description: "Shared role for EC2 and Lambda"
+      assumed_by:
+        - type: service
+          principal: ec2.amazonaws.com
+        - type: service
+          principal: lambda.amazonaws.com
+      managed_policies:
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+
+    # Feature 3: Federated principal — GitHub Actions OIDC
+    - name: myapp-dev-github-deploy-role
+      description: "Role assumed by GitHub Actions via OIDC"
+      assumed_by:
+        type: federated
+        principal: token.actions.githubusercontent.com
+        conditions:
+          StringEquals:
+            token.actions.githubusercontent.com:aud: sts.amazonaws.com
+          StringLike:
+            token.actions.githubusercontent.com:sub: repo:myorg/myrepo:*
+      managed_policies:
+        - arn:aws:iam::aws:policy/PowerUserAccess
+      max_session_duration_hours: 1
+
+    # Feature 3: SAML principal — enterprise SSO (Okta, Azure AD)
+    - name: myapp-dev-sso-role
+      description: "Role assumed via enterprise SAML SSO"
+      assumed_by:
+        type: saml
+        principal: arn:aws:iam::123456789012:saml-provider/MyOktaProvider
+        conditions:
+          StringEquals:
+            SAML:aud: https://signin.aws.amazon.com/saml
+      managed_policies:
+        - arn:aws:iam::aws:policy/ReadOnlyAccess
+      max_session_duration_hours: 8
+
+    # Cross-account role with ARN principal
+    - name: myapp-dev-cross-account-role
+      description: "Assumable by deployment pipeline in account 111122223333"
+      assumed_by:
+        type: account
+        principal: "111122223333"
+      managed_policies:
+        - arn:aws:iam::aws:policy/PowerUserAccess
+      max_session_duration_hours: 2
+
+  # ── Managed Policies ──────────────────────────────────────────────────────
+  # Feature 4: path + Feature 2: tags on policies
+  policies:
+
+    - name: myapp-dev-ssm-read-policy
+      description: "Read-only SSM access for myapp"
+      path: /myapp/
+      tags:
+        team: platform
+        environment: dev
+      statements:
+        - effect: Allow
+          actions:
+            - ssm:GetParameter
+            - ssm:GetParameters
+            - ssm:GetParametersByPath
+            - ssm:DescribeParameters
+          resources:
+            - arn:aws:ssm:*:*:parameter/myapp/*
+
+    - name: myapp-dev-secrets-read-policy
+      description: "Read access to myapp Secrets Manager secrets"
+      path: /myapp/
+      tags:
+        team: platform
+        environment: dev
+      statements:
+        - effect: Allow
+          actions:
+            - secretsmanager:GetSecretValue
+            - secretsmanager:DescribeSecret
+          resources:
+            - arn:aws:secretsmanager:*:*:secret:/myapp/*
+
+    # Feature 1: Permission boundary policy — caps max permissions
+    - name: myapp-dev-boundary-policy
+      description: "Permission boundary — maximum permissions any myapp role may have"
+      path: /myapp/boundaries/
+      statements:
+        - effect: Allow
+          actions:
+            - ssm:*
+            - secretsmanager:Get*
+            - secretsmanager:Describe*
+            - s3:GetObject
+            - s3:PutObject
+            - logs:*
+          resources:
+            - "*"
+        - effect: Deny
+          actions:
+            - iam:*
+            - organizations:*
+          resources:
+            - "*"

@@ -21,13 +21,18 @@ class KeyValueSecret(BaseSecretType):
     Each key in the stored JSON is individually retrievable at runtime via the
     AWS SDK using ``jsonField``.
 
+    Supports tags, removal policy, KMS encryption, and cross-region replication.
+
     Suitable for: grouped credentials (username + password + host + port)
     consumed together by a single service.
     """
 
     def create(self, scope: Construct, config: SecretConfig) -> None:
         resolved_dict: dict = resolve(config.value)
-        sm.Secret(
+        encryption_key = self._resolve_kms_key(scope, config)
+        replica_regions = self._build_replica_regions(config)
+
+        secret = sm.Secret(
             scope,
             "Resource",
             secret_name=config.name,
@@ -36,4 +41,7 @@ class KeyValueSecret(BaseSecretType):
                 key: cdk.SecretValue.unsafe_plain_text(str(val))
                 for key, val in resolved_dict.items()
             },
+            encryption_key=encryption_key,
+            replica_regions=replica_regions,
         )
+        self._apply_managed_secret_fields(secret, config)
