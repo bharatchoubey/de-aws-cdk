@@ -9,7 +9,6 @@ Config-driven AWS infrastructure mono-repo. Define AWS resources in YAML — the
 | Module | Description | Docs |
 |---|---|---|
 | `aws/` | Config-driven AWS CDK infrastructure (Python) | [README](aws/README.md) |
-| `cas/` | Config as a Service — Flask REST API for managing application configuration | [README](cas/README.md) |
 
 ---
 
@@ -17,13 +16,10 @@ Config-driven AWS infrastructure mono-repo. Define AWS resources in YAML — the
 
 ```
 de-aws-cdk/
-├── .venv/              # Shared virtual environment (all modules)
-├── aws/                # AWS CDK infrastructure module
-│   ├── configs/        # YAML configs per environment
-│   ├── src/            # CDK stacks, constructs, config models
-│   └── README.md
-└── cas/                # Config as a Service (Flask API)
-    ├── src/            # Application source
+├── .venv/              # Shared virtual environment
+└── aws/                # AWS CDK infrastructure module
+    ├── configs/        # YAML configs per environment
+    ├── src/            # CDK stacks, constructs, config models
     └── README.md
 ```
 
@@ -37,7 +33,7 @@ git clone <repo-url>
 cd de-aws-cdk
 python -m venv .venv
 source .venv/bin/activate
-pip install -r aws/requirements.txt -r cas/requirements.txt
+pip install -r aws/requirements.txt
 ```
 
 See each module's README for usage details.

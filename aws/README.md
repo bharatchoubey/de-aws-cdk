@@ -102,7 +102,7 @@ python -m venv .venv
 source .venv/bin/activate
 
 # Install all module dependencies
-pip install -r aws/requirements.txt -r cas/requirements.txt
+pip install -r aws/requirements.txt
 ```
 
 Install the AWS CDK CLI (required for deploy/diff commands):
