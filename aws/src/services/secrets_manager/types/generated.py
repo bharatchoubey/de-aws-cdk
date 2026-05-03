@@ -16,8 +16,22 @@ class GeneratedSecret(BaseSecretType):
     cryptographically strong random string according to the ``generate`` rules
     defined in the YAML config block.
 
-    The generated value can be retrieved at runtime via the AWS SDK:
-        boto3.client("secretsmanager").get_secret_value(SecretId=name)
+    Supports the full ``SecretStringGenerator`` field set:
+
+      - ``length``, ``exclude_characters``, ``exclude_punctuation``:
+        Character set and length controls.
+      - ``include_space``: Allow spaces in the generated value.
+      - ``require_each_included_type``: Guarantee uppercase, lowercase,
+        digit, and symbol all appear.
+      - ``secret_string_template`` + ``generate_string_key``:
+        Generate a JSON-structured secret compatible with RDS/Aurora
+        automatic rotation, e.g.::
+
+            secret_string_template: '{"username": "admin"}'
+            generate_string_key: "password"
+            # Result stored: {"username": "admin", "password": "<generated>"}
+
+    Supports tags, removal policy, KMS encryption, and cross-region replication.
 
     Typical use: database passwords, internal service tokens, encryption keys
     that do not need to match a pre-existing external value.
@@ -25,14 +39,26 @@ class GeneratedSecret(BaseSecretType):
 
     def create(self, scope: Construct, config: SecretConfig) -> None:
         g = config.generate_config
-        sm.Secret(
+        encryption_key = self._resolve_kms_key(scope, config)
+        replica_regions = self._build_replica_regions(config)
+
+        generator = sm.SecretStringGenerator(
+            password_length=g.length,
+            exclude_characters=g.exclude_characters or None,
+            exclude_punctuation=g.exclude_punctuation,
+            include_space=g.include_space,
+            require_each_included_type=g.require_each_included_type,
+            secret_string_template=g.secret_string_template or None,
+            generate_string_key=g.generate_string_key or None,
+        )
+
+        secret = sm.Secret(
             scope,
             "Resource",
             secret_name=config.name,
             description=config.description or None,
-            generate_secret_string=sm.SecretStringGenerator(
-                password_length=g.length,
-                exclude_characters=g.exclude_characters or None,
-                exclude_punctuation=g.exclude_punctuation,
-            ),
+            generate_secret_string=generator,
+            encryption_key=encryption_key,
+            replica_regions=replica_regions,
         )
+        self._apply_managed_secret_fields(secret, config)

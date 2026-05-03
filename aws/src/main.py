@@ -5,8 +5,10 @@ import os
 import aws_cdk as cdk
 
 from config.loader import YamlConfigLoader
+from config.models.iam import IamConfig
 from config.models.secrets_manager import SecretsManagerConfig
 from config.models.ssm import SsmConfig
+from stacks.iam_stack import IamStack
 from stacks.secrets_manager_stack import SecretsManagerStack
 from stacks.ssm_stack import SsmStack
 
@@ -20,5 +22,8 @@ SsmStack(app, ssm_config)
 
 secrets_config: SecretsManagerConfig = loader.load("secrets_manager", ENV)
 SecretsManagerStack(app, secrets_config)
+
+iam_config: IamConfig = loader.load("iam", ENV)
+IamStack(app, iam_config)
 
 app.synth()

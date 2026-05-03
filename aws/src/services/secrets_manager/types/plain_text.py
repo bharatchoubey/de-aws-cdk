@@ -18,15 +18,23 @@ class PlainTextSecret(BaseSecretType):
     not set, an ``EnvironmentError`` is raised immediately so the problem
     surfaces before deployment rather than at runtime.
 
+    Supports tags, removal policy, KMS encryption, and cross-region replication.
+
     Suitable for: API tokens, signing keys, single-value credentials.
     """
 
     def create(self, scope: Construct, config: SecretConfig) -> None:
         resolved_value = resolve(config.value)
-        sm.Secret(
+        encryption_key = self._resolve_kms_key(scope, config)
+        replica_regions = self._build_replica_regions(config)
+
+        secret = sm.Secret(
             scope,
             "Resource",
             secret_name=config.name,
             description=config.description or None,
             secret_string_value=cdk.SecretValue.unsafe_plain_text(resolved_value),
+            encryption_key=encryption_key,
+            replica_regions=replica_regions,
         )
+        self._apply_managed_secret_fields(secret, config)

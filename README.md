@@ -50,3 +50,4 @@ See each module's README for usage details.
 |---|---|
 | SSM Parameter Store | Non-sensitive configuration values |
 | Secrets Manager | Credentials and secrets (Generated, Reference, PlainText, KeyValue) |
+| IAM | Roles and managed policies |

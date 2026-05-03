@@ -8,12 +8,14 @@ import yaml
 
 from config.base import BaseConfigLoader
 from config.models.base import BaseConfig
+from config.models.iam import IamConfig
 from config.models.secrets_manager import SecretsManagerConfig
 from config.models.ssm import SsmConfig
 
 _SERVICE_FACTORIES = {
     "ssm": SsmConfig.from_dict,
     "secrets_manager": SecretsManagerConfig.from_dict,
+    "iam": IamConfig.from_dict,
 }
 
 _CONFIGS_ROOT = Path(__file__).parents[2] / "configs"
