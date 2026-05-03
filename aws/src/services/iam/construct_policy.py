@@ -17,8 +17,9 @@ class IamPolicyConstruct(BaseServiceConstruct):
     and all statement fields including NotAction and NotResource.
     """
 
-    def __init__(self, scope: Construct, config: IamPolicyConfig) -> None:
-        super().__init__(scope, config.construct_id, config)
+    def __init__(self, scope: Construct, config: IamPolicyConfig, name_prefix: str = "") -> None:
+        cid = f"{name_prefix}-{config.construct_id}" if name_prefix else config.construct_id
+        super().__init__(scope, cid, config)
 
     def _create_resource(self) -> None:
         config: IamPolicyConfig = self._config

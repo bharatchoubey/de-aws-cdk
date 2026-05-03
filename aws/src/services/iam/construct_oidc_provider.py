@@ -30,8 +30,9 @@ class IamOidcProviderConstruct(BaseServiceConstruct):
     working with private or self-managed OIDC endpoints.
     """
 
-    def __init__(self, scope: Construct, config: OidcProviderConfig) -> None:
-        super().__init__(scope, config.construct_id, config)
+    def __init__(self, scope: Construct, config: OidcProviderConfig, name_prefix: str = "") -> None:
+        cid = f"{name_prefix}-{config.construct_id}" if name_prefix else config.construct_id
+        super().__init__(scope, cid, config)
 
     def _create_resource(self) -> None:
         config: OidcProviderConfig = self._config

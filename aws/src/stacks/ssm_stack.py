@@ -31,7 +31,7 @@ class SsmStack(BaseServiceStack):
         for param_config in self._config.parameters:
             log.debug("Creating SSM parameter: name=%s type=%s", param_config.name, param_config.type)
             try:
-                SsmParameterConstruct(self, param_config)
+                SsmParameterConstruct(self, param_config, name_prefix=self._config.project)
             except Exception as exc:
                 log.error("Failed to create SSM parameter '%s': %s", param_config.name, exc)
                 raise

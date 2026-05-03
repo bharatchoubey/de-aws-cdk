@@ -1,0 +1,205 @@
+# AWS S3 Buckets — covers all CDK L2 Bucket features.
+#
+# Location encodes: env=dev  project=myapp  region=us-east-1
+# (no project / environment / region keys needed inside this file)
+#
+# Encryption modes:
+#   S3_MANAGED   — SSE-S3 (AES-256, AWS-managed key) — recommended default
+#   KMS_MANAGED  — SSE-KMS with AWS-managed key (free; auditable in CloudTrail)
+#   KMS          — SSE-KMS with customer-managed key (requires encryption_key_arn)
+#   DSSE_MANAGED — Dual-layer SSE-KMS, AWS-managed key
+#   DSSE         — Dual-layer SSE-KMS, customer-managed key (requires encryption_key_arn)
+#   UNENCRYPTED  — No server-side encryption (not recommended)
+#
+# block_public_access:
+#   BLOCK_ALL    — All four public-access settings enabled (recommended)
+#   BLOCK_ACLS   — Only ACL-based public access blocked
+#   NONE         — No block (required for public-facing / static-website buckets)
+#
+# object_ownership:
+#   BUCKET_OWNER_ENFORCED  — ACLs disabled; bucket owner owns everything (recommended)
+#   BUCKET_OWNER_PREFERRED — Bucket owner owns new objects if ACL grants ownership
+#   OBJECT_WRITER          — Object uploader owns the object
+#
+# removal_policy:
+#   RETAIN   — Keep bucket after stack deletion (recommended for production)
+#   DESTROY  — Delete bucket when stack is destroyed (use with auto_delete_objects: true for non-empty buckets)
+#   SNAPSHOT — Unsupported by S3 (CDK accepts it but CloudFormation ignores it for S3)
+#
+# storage classes (lifecycle transitions):
+#   STANDARD_IA            — min 30 days, infrequent access
+#   ONEZONE_IA             — min 30 days, lower cost, single AZ
+#   INTELLIGENT_TIERING    — automatic tiering, no minimum
+#   GLACIER_INSTANT_RETRIEVAL — min 90 days, ms retrieval
+#   GLACIER                — min 90 days, minutes-to-hours retrieval
+#   DEEP_ARCHIVE           — min 180 days, cheapest, 12h retrieval
+
+buckets:
+
+  # ── Standard application data bucket ──────────────────────────────────────
+  - name: myapp-data
+    bucket_name: myapp-data-dev          # omit to let CloudFormation generate the name
+    description: "Primary application data bucket"
+    versioned: true
+    encryption: S3_MANAGED
+    block_public_access: BLOCK_ALL
+    object_ownership: BUCKET_OWNER_ENFORCED
+    removal_policy: RETAIN
+    event_bridge_enabled: true           # emit all S3 events to EventBridge
+    tags:
+      team: platform
+      environment: dev
+      data-classification: internal
+
+  # ── Bucket with full lifecycle rules ──────────────────────────────────────
+  - name: myapp-logs
+    description: "Application logs with tiered storage lifecycle"
+    versioned: false
+    encryption: S3_MANAGED
+    block_public_access: BLOCK_ALL
+    object_ownership: BUCKET_OWNER_ENFORCED
+    removal_policy: RETAIN
+    lifecycle_rules:
+
+      # Move logs to cheaper tiers, then expire them
+      - id: log-tiering
+        enabled: true
+        prefix: "app-logs/"
+        transitions:
+          - storage_class: STANDARD_IA
+            transition_after: 30          # standard logs → IA after 30 days
+          - storage_class: GLACIER
+            transition_after: 90          # → Glacier after 90 days
+        expiration: 365                   # delete after 1 year
+
+      # Clean up failed multipart uploads
+      - id: cleanup-multipart
+        enabled: true
+        abort_incomplete_multipart_upload_after: 7
+
+    tags:
+      team: platform
+      environment: dev
+
+  # ── Bucket with KMS customer-managed encryption ────────────────────────────
+  - name: myapp-sensitive
+    description: "Sensitive data bucket with customer-managed KMS encryption"
+    versioned: true
+    encryption: KMS
+    encryption_key_arn: arn:aws:kms:us-east-1:123456789012:key/mrk-abcdef1234567890
+    bucket_key_enabled: true             # reduce KMS API call costs
+    block_public_access: BLOCK_ALL
+    object_ownership: BUCKET_OWNER_ENFORCED
+    removal_policy: RETAIN
+    tags:
+      team: security
+      environment: dev
+      compliance: pci-dss
+
+  # ── Static website bucket ──────────────────────────────────────────────────
+  - name: myapp-website
+    description: "Static website hosting"
+    versioned: false
+    encryption: S3_MANAGED
+    block_public_access: NONE            # must be NONE for static website
+    public_read_access: true             # allow unauthenticated GET requests
+    object_ownership: OBJECT_WRITER      # required when public_read_access is true
+    website_index_document: index.html
+    website_error_document: error.html
+    removal_policy: DESTROY
+    auto_delete_objects: true            # empty bucket on stack destroy
+    tags:
+      team: frontend
+      environment: dev
+
+  # ── Bucket with CORS for browser uploads ──────────────────────────────────
+  - name: myapp-uploads
+    description: "User upload bucket — pre-signed URL browser uploads"
+    versioned: true
+    encryption: S3_MANAGED
+    block_public_access: BLOCK_ALL
+    object_ownership: BUCKET_OWNER_ENFORCED
+    removal_policy: RETAIN
+    cors_rules:
+      - id: browser-uploads
+        allowed_methods: [PUT, POST, GET]
+        allowed_origins:
+          - https://app.example.com
+          - https://staging.example.com
+        allowed_headers: ["*"]
+        exposed_headers:
+          - ETag
+          - x-amz-request-id
+        max_age: 3000
+    lifecycle_rules:
+      # Expire incomplete uploads quickly
+      - id: cleanup-incomplete-uploads
+        enabled: true
+        abort_incomplete_multipart_upload_after: 1
+      # Remove soft-deleted (noncurrent) versions after 30 days
+      - id: noncurrent-version-cleanup
+        enabled: true
+        noncurrent_version_expiration: 30
+    tags:
+      team: backend
+      environment: dev
+
+  # ── Bucket with Intelligent-Tiering ───────────────────────────────────────
+  - name: myapp-ml-datasets
+    description: "ML training datasets with automatic intelligent tiering"
+    versioned: true
+    encryption: KMS_MANAGED
+    bucket_key_enabled: true
+    block_public_access: BLOCK_ALL
+    object_ownership: BUCKET_OWNER_ENFORCED
+    removal_policy: RETAIN
+    transfer_acceleration: true          # faster cross-region uploads
+    intelligent_tiering:
+      - name: archive-cold-datasets
+        prefix: datasets/                # only tier objects under datasets/
+        archive_access_tier_time: 90     # move to Archive tier after 90 days of no access
+        deep_archive_access_tier_time: 180  # move to Deep Archive after 180 days
+        tags:
+          data-type: training-dataset
+    lifecycle_rules:
+      - id: noncurrent-version-cleanup
+        enabled: true
+        noncurrent_version_expiration: 90
+        noncurrent_version_transitions:
+          - storage_class: STANDARD_IA
+            transition_after: 30
+    tags:
+      team: ml
+      environment: dev
+
+  # ── Access log target bucket ───────────────────────────────────────────────
+  # Other buckets point their server_access_logs_bucket here.
+  - name: myapp-access-logs
+    description: "Centralized S3 server access logs target"
+    versioned: false
+    encryption: S3_MANAGED
+    block_public_access: BLOCK_ALL
+    object_ownership: BUCKET_OWNER_PREFERRED  # required for server access log delivery
+    removal_policy: RETAIN
+    lifecycle_rules:
+      - id: expire-old-access-logs
+        enabled: true
+        expiration: 90                   # keep access logs for 90 days
+    tags:
+      team: security
+      environment: dev
+
+  # ── Bucket with server access logging enabled ──────────────────────────────
+  - name: myapp-audited-data
+    description: "Audited data bucket — all access logged to myapp-access-logs"
+    versioned: true
+    encryption: S3_MANAGED
+    block_public_access: BLOCK_ALL
+    object_ownership: BUCKET_OWNER_ENFORCED
+    removal_policy: RETAIN
+    server_access_logs_bucket: myapp-access-logs  # logical name — resolved to CDK object in the same stack
+    server_access_logs_prefix: audited-data/
+    tags:
+      team: platform
+      environment: dev
+      audit: enabled

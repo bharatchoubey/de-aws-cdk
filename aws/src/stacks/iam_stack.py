@@ -41,7 +41,7 @@ class IamStack(BaseServiceStack):
         for oidc_config in self._config.oidc_providers:
             log.debug("Creating OIDC provider: url=%s", oidc_config.url)
             try:
-                IamOidcProviderConstruct(self, oidc_config)
+                IamOidcProviderConstruct(self, oidc_config, name_prefix=self._config.project)
             except Exception as exc:
                 log.error("Failed to create OIDC provider '%s': %s", oidc_config.url, exc)
                 raise
@@ -51,7 +51,7 @@ class IamStack(BaseServiceStack):
         for policy_config in self._config.policies:
             log.debug("Creating managed policy: name=%s", policy_config.name)
             try:
-                IamPolicyConstruct(self, policy_config)
+                IamPolicyConstruct(self, policy_config, name_prefix=self._config.project)
             except Exception as exc:
                 log.error("Failed to create managed policy '%s': %s", policy_config.name, exc)
                 raise
@@ -62,7 +62,7 @@ class IamStack(BaseServiceStack):
         for group_config in self._config.groups:
             log.debug("Creating IAM group: name=%s", group_config.name)
             try:
-                construct = IamGroupConstruct(self, group_config)
+                construct = IamGroupConstruct(self, group_config, name_prefix=self._config.project)
                 group_refs[group_config.name] = construct.group_resource
             except Exception as exc:
                 log.error("Failed to create IAM group '%s': %s", group_config.name, exc)
@@ -73,7 +73,7 @@ class IamStack(BaseServiceStack):
         for user_config in self._config.users:
             log.debug("Creating IAM user: name=%s groups=%s", user_config.name, user_config.groups)
             try:
-                IamUserConstruct(self, user_config, group_refs)
+                IamUserConstruct(self, user_config, group_refs, name_prefix=self._config.project)
             except Exception as exc:
                 log.error("Failed to create IAM user '%s': %s", user_config.name, exc)
                 raise
@@ -83,7 +83,7 @@ class IamStack(BaseServiceStack):
         for role_config in self._config.roles:
             log.debug("Creating IAM role: name=%s", role_config.name)
             try:
-                IamRoleConstruct(self, role_config)
+                IamRoleConstruct(self, role_config, name_prefix=self._config.project)
             except Exception as exc:
                 log.error("Failed to create IAM role '%s': %s", role_config.name, exc)
                 raise

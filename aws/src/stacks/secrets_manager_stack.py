@@ -31,7 +31,7 @@ class SecretsManagerStack(BaseServiceStack):
         for secret_config in self._config.secrets:
             log.debug("Creating secret: name=%s type=%s", secret_config.name, secret_config.type)
             try:
-                SecretConstruct(self, secret_config)
+                SecretConstruct(self, secret_config, name_prefix=self._config.project)
             except Exception as exc:
                 log.error("Failed to create secret '%s': %s", secret_config.name, exc)
                 raise

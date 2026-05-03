@@ -38,20 +38,22 @@ class BaseServiceStack(cdk.Stack):
         config: BaseConfig,
         **kwargs,
     ) -> None:
-        construct_id = f"{config.environment}-{service_name}-stack"
+        construct_id = f"{config.project}-{config.environment}-{service_name}-stack"
         env = cdk.Environment(region=config.region)
         super().__init__(scope, construct_id, env=env, **kwargs)
 
         self._config = config
         self._service_name = service_name
 
+        cdk.Tags.of(self).add("project", config.project)
         cdk.Tags.of(self).add("environment", config.environment)
         cdk.Tags.of(self).add("managed-by", "de-aws-cdk")
         cdk.Tags.of(self).add("service", service_name)
 
         log.info(
-            "Initializing stack: id=%s service=%s region=%s",
+            "Initializing stack: id=%s project=%s service=%s region=%s",
             construct_id,
+            config.project,
             service_name,
             config.region,
         )
