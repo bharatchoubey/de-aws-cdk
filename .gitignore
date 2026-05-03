@@ -211,3 +211,6 @@ __marimo__/
 .vscode
 .devcontainer/
 .devcontainer/*
+cdk.out/*
+cdk.out
+.run.sh

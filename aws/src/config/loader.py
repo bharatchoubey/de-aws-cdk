@@ -11,6 +11,9 @@ from config.models.base import BaseConfig
 from config.models.iam import IamConfig
 from config.models.secrets_manager import SecretsManagerConfig
 from config.models.ssm import SsmConfig
+from logger import get_logger
+
+log = get_logger(__name__)
 
 _SERVICE_FACTORIES = {
     "ssm": SsmConfig.from_dict,
@@ -55,15 +58,33 @@ class YamlConfigLoader(BaseConfigLoader):
             KeyError:          if *service* has no registered factory.
         """
         path = self._resolve_path(service, env)
-        raw = self._read_file(str(path))
-        self._validate(raw)
+        log.info("Loading config: service=%s env=%s path=%s", service, env, path)
 
-        factory = self._get_factory(service)
-        environment = raw.get("environment", env)
-        region = raw.get("region", "us-east-1")
-        service_block = raw.get(service, {})
+        try:
+            raw = self._read_file(str(path))
+            self._validate(raw)
 
-        return factory(environment, region, service_block)
+            factory = self._get_factory(service)
+            environment = raw.get("environment", env)
+            region = raw.get("region", "us-east-1")
+            service_block = raw.get(service, {})
+
+            config = factory(environment, region, service_block)
+            log.debug("Config loaded successfully: service=%s env=%s region=%s", service, env, region)
+            return config
+
+        except FileNotFoundError:
+            log.error("Config file not found: %s", path)
+            raise
+        except ValueError as exc:
+            log.error("Invalid config for service=%s env=%s: %s", service, env, exc)
+            raise
+        except KeyError as exc:
+            log.error("Unknown service '%s': %s", service, exc)
+            raise
+        except Exception as exc:
+            log.exception("Unexpected error loading config for service=%s env=%s: %s", service, env, exc)
+            raise
 
     # ------------------------------------------------------------------
     # Protected implementation (BaseConfigLoader contract)
@@ -76,8 +97,14 @@ class YamlConfigLoader(BaseConfigLoader):
                 f"Config file not found: {file_path}\n"
                 f"Expected location: configs/{{env}}/{{service}}.yaml"
             )
-        with file_path.open("r", encoding="utf-8") as fh:
-            data = yaml.safe_load(fh)
+        try:
+            with file_path.open("r", encoding="utf-8") as fh:
+                data = yaml.safe_load(fh)
+            log.debug("Read YAML file: %s", file_path)
+        except yaml.YAMLError as exc:
+            log.error("Failed to parse YAML file %s: %s", file_path, exc)
+            raise ValueError(f"Failed to parse YAML file '{file_path}': {exc}") from exc
+
         if not isinstance(data, dict):
             raise ValueError(f"Config file must be a YAML mapping. Got: {type(data).__name__}")
         return data
@@ -103,3 +130,6 @@ class YamlConfigLoader(BaseConfigLoader):
                 f"Supported: [{supported}]"
             )
         return _SERVICE_FACTORIES[service]
+
+
+# YamlConfigLoader().load("ssm", "dev")

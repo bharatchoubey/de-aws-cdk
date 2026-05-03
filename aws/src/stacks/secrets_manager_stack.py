@@ -3,8 +3,11 @@ from __future__ import annotations
 from constructs import Construct
 
 from config.models.secrets_manager import SecretsManagerConfig
+from logger import get_logger
 from services.secrets_manager.construct import SecretConstruct
 from stacks.base import BaseServiceStack
+
+log = get_logger(__name__)
 
 
 class SecretsManagerStack(BaseServiceStack):
@@ -22,5 +25,15 @@ class SecretsManagerStack(BaseServiceStack):
         super().__init__(scope, "secrets-manager", config, **kwargs)
 
     def _build(self) -> None:
+        total = len(self._config.secrets)
+        log.info("Building Secrets Manager stack: %d secret(s) to provision", total)
+
         for secret_config in self._config.secrets:
-            SecretConstruct(self, secret_config)
+            log.debug("Creating secret: name=%s type=%s", secret_config.name, secret_config.type)
+            try:
+                SecretConstruct(self, secret_config)
+            except Exception as exc:
+                log.error("Failed to create secret '%s': %s", secret_config.name, exc)
+                raise
+
+        log.info("Secrets Manager stack build complete: %d secret(s) defined", total)

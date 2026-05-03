@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from constructs import Construct
 
+from logger import get_logger
+
+log = get_logger(__name__)
+
 
 class BaseServiceConstruct(Construct):
     """
@@ -29,7 +33,17 @@ class BaseServiceConstruct(Construct):
     def __init__(self, scope: Construct, construct_id: str, config) -> None:
         super().__init__(scope, construct_id)
         self._config = config
-        self._create_resource()
+        log.debug("Initializing construct: id=%s class=%s", construct_id, self.__class__.__name__)
+        try:
+            self._create_resource()
+        except Exception as exc:
+            log.error(
+                "Failed to create resource in construct '%s' (%s): %s",
+                construct_id,
+                self.__class__.__name__,
+                exc,
+            )
+            raise
 
     def _create_resource(self) -> None:
         """

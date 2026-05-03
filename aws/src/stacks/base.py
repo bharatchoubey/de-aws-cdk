@@ -4,6 +4,9 @@ import aws_cdk as cdk
 from constructs import Construct
 
 from config.models.base import BaseConfig
+from logger import get_logger
+
+log = get_logger(__name__)
 
 
 class BaseServiceStack(cdk.Stack):
@@ -46,7 +49,22 @@ class BaseServiceStack(cdk.Stack):
         cdk.Tags.of(self).add("managed-by", "de-aws-cdk")
         cdk.Tags.of(self).add("service", service_name)
 
-        self._build()
+        log.info(
+            "Initializing stack: id=%s service=%s region=%s",
+            construct_id,
+            service_name,
+            config.region,
+        )
+
+        try:
+            self._build()
+        except Exception as exc:
+            log.error(
+                "Failed to build stack '%s': %s",
+                construct_id,
+                exc,
+            )
+            raise
 
     def _build(self) -> None:
         """

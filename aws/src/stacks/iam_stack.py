@@ -4,12 +4,15 @@ import aws_cdk.aws_iam as iam
 from constructs import Construct
 
 from config.models.iam import IamConfig
+from logger import get_logger
 from services.iam.construct_group import IamGroupConstruct
 from services.iam.construct_oidc_provider import IamOidcProviderConstruct
 from services.iam.construct_policy import IamPolicyConstruct
 from services.iam.construct_role import IamRoleConstruct
 from services.iam.construct_user import IamUserConstruct
 from stacks.base import BaseServiceStack
+
+log = get_logger(__name__)
 
 
 class IamStack(BaseServiceStack):
@@ -34,23 +37,63 @@ class IamStack(BaseServiceStack):
 
     def _build(self) -> None:
         # 1. OIDC providers — no dependencies
+        log.info("Creating %d OIDC provider(s)", len(self._config.oidc_providers))
         for oidc_config in self._config.oidc_providers:
-            IamOidcProviderConstruct(self, oidc_config)
+            log.debug("Creating OIDC provider: url=%s", oidc_config.url)
+            try:
+                IamOidcProviderConstruct(self, oidc_config)
+            except Exception as exc:
+                log.error("Failed to create OIDC provider '%s': %s", oidc_config.url, exc)
+                raise
 
         # 2. Standalone managed policies — no dependencies
+        log.info("Creating %d managed policy(ies)", len(self._config.policies))
         for policy_config in self._config.policies:
-            IamPolicyConstruct(self, policy_config)
+            log.debug("Creating managed policy: name=%s", policy_config.name)
+            try:
+                IamPolicyConstruct(self, policy_config)
+            except Exception as exc:
+                log.error("Failed to create managed policy '%s': %s", policy_config.name, exc)
+                raise
 
         # 3. Groups — must exist before users reference them
+        log.info("Creating %d group(s)", len(self._config.groups))
         group_refs: dict[str, iam.IGroup] = {}
         for group_config in self._config.groups:
-            construct = IamGroupConstruct(self, group_config)
-            group_refs[group_config.name] = construct.group_resource
+            log.debug("Creating IAM group: name=%s", group_config.name)
+            try:
+                construct = IamGroupConstruct(self, group_config)
+                group_refs[group_config.name] = construct.group_resource
+            except Exception as exc:
+                log.error("Failed to create IAM group '%s': %s", group_config.name, exc)
+                raise
 
         # 4. Users — resolved against group_refs built above
+        log.info("Creating %d user(s)", len(self._config.users))
         for user_config in self._config.users:
-            IamUserConstruct(self, user_config, group_refs)
+            log.debug("Creating IAM user: name=%s groups=%s", user_config.name, user_config.groups)
+            try:
+                IamUserConstruct(self, user_config, group_refs)
+            except Exception as exc:
+                log.error("Failed to create IAM user '%s': %s", user_config.name, exc)
+                raise
 
         # 5. Roles — independent of users/groups
+        log.info("Creating %d role(s)", len(self._config.roles))
         for role_config in self._config.roles:
-            IamRoleConstruct(self, role_config)
+            log.debug("Creating IAM role: name=%s", role_config.name)
+            try:
+                IamRoleConstruct(self, role_config)
+            except Exception as exc:
+                log.error("Failed to create IAM role '%s': %s", role_config.name, exc)
+                raise
+
+        log.info(
+            "IAM stack build complete: %d OIDC provider(s), %d policy(ies), "
+            "%d group(s), %d user(s), %d role(s)",
+            len(self._config.oidc_providers),
+            len(self._config.policies),
+            len(self._config.groups),
+            len(self._config.users),
+            len(self._config.roles),
+        )
