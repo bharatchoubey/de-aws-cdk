@@ -3,12 +3,15 @@ from __future__ import annotations
 from constructs import Construct
 
 from config.models.secrets_manager import SecretConfig
+from logger import get_logger
 from services.base import BaseServiceConstruct
 from services.secrets_manager.types.base import BaseSecretType
 from services.secrets_manager.types.generated import GeneratedSecret
 from services.secrets_manager.types.key_value import KeyValueSecret
 from services.secrets_manager.types.plain_text import PlainTextSecret
 from services.secrets_manager.types.reference import ReferenceSecret
+
+log = get_logger(__name__)
 
 _HANDLERS: dict[str, BaseSecretType] = {
     "PlainText": PlainTextSecret(),
@@ -37,12 +40,21 @@ class SecretConstruct(BaseServiceConstruct):
     ``_create_resource()`` is called automatically during construction.
     """
 
-    def __init__(self, scope: Construct, config: SecretConfig) -> None:
-        super().__init__(scope, config.construct_id, config)
+    def __init__(self, scope: Construct, config: SecretConfig, name_prefix: str = "") -> None:
+        cid = f"{name_prefix}-{config.construct_id}" if name_prefix else config.construct_id
+        super().__init__(scope, cid, config)
 
     def _create_resource(self) -> None:
-        handler = self._resolve_handler()
-        handler.create(self, self._config)
+        try:
+            handler = self._resolve_handler()
+            log.debug("Using handler '%s' for secret '%s'", type(handler).__name__, self._config.name)
+            handler.create(self, self._config)
+            log.debug("Secret created: name=%s type=%s", self._config.name, self._config.type)
+        except (ValueError, EnvironmentError):
+            raise
+        except Exception as exc:
+            log.error("Unexpected error creating secret '%s': %s", self._config.name, exc)
+            raise
 
     def _resolve_handler(self) -> BaseSecretType:
         handler = _HANDLERS.get(self._config.type)

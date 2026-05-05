@@ -194,7 +194,7 @@ class SecretsManagerConfig(BaseConfig):
             secret.validate()
 
     @classmethod
-    def from_dict(cls, environment: str, region: str, raw: dict) -> "SecretsManagerConfig":
+    def from_dict(cls, project: str, environment: str, region: str, raw: dict) -> "SecretsManagerConfig":
         raw_secrets = raw.get("secrets", [])
         secrets = []
         for s in raw_secrets:
@@ -227,4 +227,4 @@ class SecretsManagerConfig(BaseConfig):
                     replica_regions=s.get("replica_regions", []),
                 )
             )
-        return cls(environment=environment, region=region, secrets=secrets)
+        return cls(project=project, environment=environment, region=region, secrets=secrets)

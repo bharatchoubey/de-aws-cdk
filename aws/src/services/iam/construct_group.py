@@ -20,9 +20,10 @@ class IamGroupConstruct(BaseServiceConstruct):
     so that ``IamStack`` can collect group references for user wiring.
     """
 
-    def __init__(self, scope: Construct, config: IamGroupConfig) -> None:
+    def __init__(self, scope: Construct, config: IamGroupConfig, name_prefix: str = "") -> None:
         self.group_resource: iam.Group = None
-        super().__init__(scope, config.construct_id, config)
+        cid = f"{name_prefix}-{config.construct_id}" if name_prefix else config.construct_id
+        super().__init__(scope, cid, config)
 
     def _create_resource(self) -> None:
         config: IamGroupConfig = self._config

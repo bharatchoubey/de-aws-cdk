@@ -327,8 +327,9 @@ class IamConfig(BaseConfig):
                 )
 
     @classmethod
-    def from_dict(cls, environment: str, region: str, raw: dict) -> "IamConfig":
+    def from_dict(cls, project: str, environment: str, region: str, raw: dict) -> "IamConfig":
         return cls(
+            project=project,
             environment=environment,
             region=region,
             roles=[cls._parse_role(r) for r in raw.get("roles", [])],

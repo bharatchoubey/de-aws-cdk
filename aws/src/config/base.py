@@ -12,16 +12,25 @@ class BaseConfigLoader(ABC):
     Subclasses decide the file format (YAML, JSON, etc.) and the
     mapping from raw data → typed config models.  Callers always
     interact through this interface, never through a concrete loader.
+
+    Config path convention:
+        configs/{env}/{project}/{region}/{service}.yaml
+
+    All four dimensions (env, project, region, service) are passed
+    explicitly to ``load()`` so the path is unambiguous and the
+    caller — not the loader — decides which combination to load.
     """
 
     @abstractmethod
-    def load(self, service: str, env: str) -> BaseConfig:
+    def load(self, service: str, env: str, project: str, region: str) -> BaseConfig:
         """
-        Load and return a validated config object for the given service/env pair.
+        Load and return a validated config object for the given combination.
 
         Args:
-            service: service name matching the config file (e.g. 'ssm')
-            env:     deployment environment (e.g. 'dev', 'prod')
+            service: service name matching the config file stem (e.g. 'ssm')
+            env:     deployment environment directory (e.g. 'dev', 'prod')
+            project: project directory within the env (e.g. 'myapp')
+            region:  AWS region directory (e.g. 'us-east-1')
 
         Returns:
             A fully validated BaseConfig subclass instance.

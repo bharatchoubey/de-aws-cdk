@@ -28,9 +28,11 @@ class IamUserConstruct(BaseServiceConstruct):
         scope: Construct,
         config: IamUserConfig,
         group_refs: dict[str, iam.IGroup] | None = None,
+        name_prefix: str = "",
     ) -> None:
         self._group_refs = group_refs or {}
-        super().__init__(scope, config.construct_id, config)
+        cid = f"{name_prefix}-{config.construct_id}" if name_prefix else config.construct_id
+        super().__init__(scope, cid, config)
 
     def _create_resource(self) -> None:
         config: IamUserConfig = self._config

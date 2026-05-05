@@ -115,7 +115,7 @@ class SsmConfig(BaseConfig):
             param.validate()
 
     @classmethod
-    def from_dict(cls, environment: str, region: str, raw: dict) -> "SsmConfig":
+    def from_dict(cls, project: str, environment: str, region: str, raw: dict) -> "SsmConfig":
         raw_params = raw.get("parameters", [])
         parameters = [
             SsmParameterConfig(
@@ -130,4 +130,4 @@ class SsmConfig(BaseConfig):
             )
             for p in raw_params
         ]
-        return cls(environment=environment, region=region, parameters=parameters)
+        return cls(project=project, environment=environment, region=region, parameters=parameters)
