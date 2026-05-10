@@ -7,6 +7,7 @@ import yaml
 from config.base import BaseConfigLoader
 from config.models.base import BaseConfig
 from config.models.iam import IamConfig
+from config.models.lambda_ import LambdaConfig
 from config.models.s3 import S3Config
 from config.models.secrets_manager import SecretsManagerConfig
 from config.models.ssm import SsmConfig
@@ -19,6 +20,7 @@ _SERVICE_FACTORIES = {
     "secrets_manager": SecretsManagerConfig.from_dict,
     "iam": IamConfig.from_dict,
     "s3": S3Config.from_dict,
+    "lambda": LambdaConfig.from_dict,
 }
 
 _CONFIGS_ROOT = Path(__file__).parents[2] / "configs"

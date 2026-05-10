@@ -1,0 +1,374 @@
+# AWS Lambda — functions and layers.
+#
+# Location encodes: env=dev  project=myapp  region=us-east-1
+#
+# IAM roles are NOT created here. Use role_arn to reference an existing role
+# from the IAM stack (configs/dev/myapp/us-east-1/iam.yaml).
+# Omit role_arn to let CDK create a minimal basic execution role automatically.
+#
+# ── Runtime values ────────────────────────────────────────────────────────────
+#   PYTHON_3_8 / 3_9 / 3_10 / 3_11 / 3_12
+#   NODEJS_18_X / 20_X / 22_X
+#   JAVA_8 / 11 / 17 / 21
+#   DOTNET_6 / 8  |  RUBY_3_2 / 3_3
+#   PROVIDED_AL2 / PROVIDED_AL2023   (bring-your-own runtime)
+#   CONTAINER                        (ECR image)
+#
+# ── Architecture values ────────────────────────────────────────────────────────
+#   X86_64  |  ARM_64
+#
+# ── log_format values ─────────────────────────────────────────────────────────
+#   TEXT (default)  |  JSON (structured — recommended for production)
+#
+# ── tracing values ────────────────────────────────────────────────────────────
+#   DISABLED (default)  |  ACTIVE  |  PASS_THROUGH
+#
+# ── reserved_concurrent_executions ───────────────────────────────────────────
+#   -1 = unreserved (default)  |  0 = throttled  |  N = capped at N
+#
+# ── s3_object_version (IMPORTANT for S3 code sources) ────────────────────────
+#   Without this field, CloudFormation cannot detect that a zip has changed
+#   on S3.  A cdk deploy after re-uploading the same key will NOT update the
+#   Lambda function or layer.
+#
+#   Prerequisite: Enable versioning on the artifact bucket:
+#     aws s3api put-bucket-versioning \
+#       --bucket myapp-artifacts-dev \
+#       --versioning-configuration Status=Enabled
+#
+#   CI/CD pipeline — capture the version ID on upload and inject it here:
+#     VERSION_ID=$(aws s3api put-object \
+#       --bucket myapp-artifacts-dev \
+#       --key functions/api-handler.zip \
+#       --body api-handler.zip \
+#       --query VersionId --output text)
+#   Then update this YAML (e.g. via sed / yq) before running cdk deploy.
+
+# =============================================================================
+# Layers
+# =============================================================================
+#
+# Layers are created before functions so functions can reference them by name.
+#
+# Three mutually-exclusive modes (choose exactly one):
+#
+#   packages        — List packages/versions directly.  CDK installs them via
+#                     Docker at synth time (pip for Python, npm for Node.js).
+#                     Requires Docker to be running.  Must also set build_runtime.
+#
+#   code (S3 zip)   — Point to a pre-built zip you uploaded to S3.  CDK creates
+#                     the layer; no Docker required.
+#
+#   layer_version_arn — Import an existing layer by ARN.  No new AWS resource
+#                       is created; CDK produces a reference only.
+
+layers:
+
+  # ── Mode 1a: packages — Python pip install (Docker required) ─────────────
+  # CDK runs:  pip install "requests==2.31.0" ... -t /asset-output/python
+  - name: myapp-python-deps
+    description: "Core Python dependencies — requests, pydantic, boto3 extensions"
+    compatible_runtimes: [PYTHON_3_11, PYTHON_3_12]
+    compatible_architectures: [X86_64, ARM_64]
+    removal_policy: RETAIN
+    license: "MIT"
+    build_runtime: PYTHON_3_11        # Docker image used for pip install
+    packages:
+      - requests==2.31.0
+      - pydantic==2.5.0
+      - tenacity==8.2.3
+      - python-dateutil==2.9.0
+
+  # ── Mode 1b: packages — Node.js npm install (Docker required) ────────────
+  # CDK runs:  npm install "lodash@4.17.21" ... --prefix /asset-output/nodejs
+  - name: myapp-node-deps
+    description: "Core Node.js dependencies — lodash, axios, uuid"
+    compatible_runtimes: [NODEJS_20_X]
+    compatible_architectures: [X86_64]
+    removal_policy: RETAIN
+    build_runtime: NODEJS_20_X        # Docker image used for npm install
+    packages:
+      - lodash@4.17.21
+      - axios@1.6.7
+      - uuid@9.0.0
+
+  # ── Mode 2: code (S3 pre-built zip) ─────────────────────────────────────
+  # You build & upload the zip; CDK just registers it as a Lambda layer.
+  - name: myapp-common-utils
+    description: "Shared Python utility helpers (pre-built zip in S3)"
+    compatible_runtimes: [PYTHON_3_11, PYTHON_3_12]
+    compatible_architectures: [X86_64, ARM_64]
+    removal_policy: RETAIN
+    license: "MIT"
+    code:
+      type: S3
+      s3_bucket: myapp-artifacts-dev         # bucket holding the zip
+      s3_key: layers/common-utils-v1.zip     # object key
+      s3_object_version: "REPLACE_ON_DEPLOY" # S3 version ID — set by CI/CD pipeline
+
+  # ── Mode 3: layer_version_arn — reference an existing layer by ARN ───────
+  # AWS Lambda Powertools for Python (public layer, managed by AWS)
+  - name: myapp-powertools
+    description: "AWS Lambda Powertools for Python (imported, not created here)"
+    layer_version_arn: arn:aws:lambda:us-east-1:017000801446:layer:AWSLambdaPowertoolsPythonV2:79
+
+# =============================================================================
+# Functions
+# =============================================================================
+
+functions:
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 1. Python API handler — JSON logging, X-Ray tracing, in-stack layers,
+  #    existing IAM role from IAM stack.
+  # ──────────────────────────────────────────────────────────────────────────
+  - name: myapp-api-handler
+    description: "REST API request handler — Python 3.11, ARM_64"
+    handler: app.handler                     # module.function
+    runtime: PYTHON_3_11
+    memory: 512                              # MB
+    timeout: 30                              # seconds
+    architecture: ARM_64
+    # Reference an existing IAM role created by the IAM stack
+    role_arn: arn:aws:iam::123456789012:role/myapp-dev-lambda-role
+    code:
+      type: S3
+      s3_bucket: myapp-artifacts-dev
+      s3_key: functions/api-handler.zip
+      s3_object_version: "REPLACE_ON_DEPLOY" # S3 version ID — set by CI/CD pipeline
+    environment:
+      LOG_LEVEL: INFO
+      STAGE: dev
+      DB_HOST: db.dev.example.com
+    layers:
+      - myapp-python-deps     # packages-based layer (pip install via Docker)
+      - myapp-common-utils    # S3 pre-built zip layer
+      - myapp-powertools      # imported public layer (ARN reference)
+    log_format: JSON
+    log_retention: 30         # CloudWatch log retention in days
+    tracing: ACTIVE
+    tags:
+      team: backend
+      tier: api
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 2. Async data processor — VPC, DLQ, async destinations, reserved concurrency,
+  #    extra ephemeral storage.
+  # ──────────────────────────────────────────────────────────────────────────
+  - name: myapp-data-processor
+    description: "Async batch data processing — runs inside the VPC"
+    handler: processor.handle
+    runtime: PYTHON_3_11
+    memory: 1024
+    timeout: 300
+    architecture: X86_64
+    role_arn: arn:aws:iam::123456789012:role/myapp-dev-lambda-role
+    code:
+      type: S3
+      s3_bucket: myapp-artifacts-dev
+      s3_key: functions/data-processor.zip
+      s3_object_version: "REPLACE_ON_DEPLOY" # S3 version ID — set by CI/CD pipeline
+    environment:
+      BATCH_SIZE: "100"
+      OUTPUT_BUCKET: myapp-data-dev
+    layers:
+      - myapp-common-utils
+
+    # Place the function inside an existing VPC
+    vpc:
+      vpc_id: vpc-0abcdef1234567890
+      subnet_ids:
+        - subnet-0abc123456789def0
+        - subnet-0def123456789abc0
+      security_group_ids:
+        - sg-0abcdef1234567890
+
+    reserved_concurrent_executions: 10   # allow at most 10 concurrent executions
+
+    # Dead-letter queue for unrecoverable invocation failures
+    dead_letter_queue:
+      type: SQS
+      arn: arn:aws:sqs:us-east-1:123456789012:myapp-processor-dlq
+
+    # Async destinations — called after the function returns (not on DLQ path)
+    on_success:
+      type: SQS
+      arn: arn:aws:sqs:us-east-1:123456789012:myapp-success-queue
+    on_failure:
+      type: SNS
+      arn: arn:aws:sns:us-east-1:123456789012:myapp-failure-topic
+
+    ephemeral_storage_size: 2048   # /tmp size in MB (for large intermediate files)
+    log_format: JSON
+    log_retention: 90
+    tracing: ACTIVE
+    tags:
+      team: backend
+      tier: processing
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 3. Java function with SnapStart + provisioned concurrency alias
+  #    SnapStart: Lambda snapshots the initialized execution environment and
+  #    restores it on invocation — eliminates Java cold starts.
+  #    Provisioned concurrency on the alias keeps N warm environments ready.
+  # ──────────────────────────────────────────────────────────────────────────
+  - name: myapp-java-api
+    description: "High-performance Java 21 API — SnapStart + provisioned concurrency"
+    handler: com.example.ApiHandler::handleRequest
+    runtime: JAVA_21
+    memory: 1024
+    timeout: 15
+    architecture: X86_64
+    role_arn: arn:aws:iam::123456789012:role/myapp-dev-lambda-role
+    code:
+      type: S3
+      s3_bucket: myapp-artifacts-dev
+      s3_key: functions/java-api-1.0.jar
+      s3_object_version: "REPLACE_ON_DEPLOY" # S3 version ID — set by CI/CD pipeline
+    snap_start: true   # Java only — triggers automatic version publication
+
+    aliases:
+      - name: live
+        description: "Stable production traffic alias with warm instances"
+        provisioned_concurrent_executions: 5   # keep 5 execution environments warm
+
+    log_format: TEXT
+    log_retention: 30
+    tracing: ACTIVE
+    tags:
+      team: backend
+      tier: api
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 4. Node.js webhook receiver with Function URL (public HTTPS endpoint)
+  #    No API Gateway needed — Lambda exposes its own HTTPS URL.
+  #    auth_type: NONE makes the URL publicly accessible.
+  # ──────────────────────────────────────────────────────────────────────────
+  - name: myapp-webhook-receiver
+    description: "GitHub webhook receiver — public Function URL, no auth"
+    handler: index.handler
+    runtime: NODEJS_20_X
+    memory: 256
+    timeout: 10
+    architecture: ARM_64
+    role_arn: arn:aws:iam::123456789012:role/myapp-dev-lambda-role
+    code:
+      type: S3
+      s3_bucket: myapp-artifacts-dev
+      s3_key: functions/webhook-receiver.zip
+      s3_object_version: "REPLACE_ON_DEPLOY" # S3 version ID — set by CI/CD pipeline
+    environment:
+      WEBHOOK_SECRET_PARAM: /myapp/github/webhook-secret
+    function_url:
+      enabled: true
+      auth_type: NONE    # NONE = public  |  AWS_IAM = IAM auth required
+      cors:
+        allow_origins:
+          - "https://github.com"
+        allow_methods: ["POST"]
+        allow_headers:
+          - "Content-Type"
+          - "X-Hub-Signature-256"
+        max_age: 300     # seconds the browser may cache the preflight response
+    on_failure:
+      type: SQS
+      arn: arn:aws:sqs:us-east-1:123456789012:myapp-webhook-dlq
+    log_format: JSON
+    log_retention: 14
+    tracing: PASS_THROUGH
+    tags:
+      team: devops
+      tier: integration
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 5. Node.js function with all concurrency knobs and alias (no SnapStart)
+  #    Reserved concurrency caps the pool; alias enables traffic splitting
+  #    or blue/green deployments via weighted alias targets (configured
+  #    post-deploy via CLI / SDK).
+  # ──────────────────────────────────────────────────────────────────────────
+  - name: myapp-notification-sender
+    description: "Event-driven notification dispatcher"
+    handler: notify.handler
+    runtime: NODEJS_20_X
+    memory: 256
+    timeout: 60
+    architecture: ARM_64
+    role_arn: arn:aws:iam::123456789012:role/myapp-dev-lambda-role
+    code:
+      type: S3
+      s3_bucket: myapp-artifacts-dev
+      s3_key: functions/notification-sender.zip
+      s3_object_version: "REPLACE_ON_DEPLOY" # S3 version ID — set by CI/CD pipeline
+    environment:
+      SNS_TOPIC_ARN: arn:aws:sns:us-east-1:123456789012:myapp-notifications
+    reserved_concurrent_executions: 20
+    dead_letter_queue:
+      type: SQS
+      arn: arn:aws:sqs:us-east-1:123456789012:myapp-notifications-dlq
+    on_success:
+      type: EVENTBRIDGE    # route success events to the default EventBridge bus
+    aliases:
+      - name: stable
+        description: "Production alias — no provisioned concurrency (cost-optimised)"
+        provisioned_concurrent_executions: 0
+    log_format: JSON
+    log_retention: 30
+    tracing: ACTIVE
+    tags:
+      team: platform
+      tier: notification
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 6. Container image function (ECR-based ML inference)
+  #    runtime: CONTAINER, code.type: CONTAINER, handler is ignored.
+  #    The image entrypoint handles invocation.
+  # ──────────────────────────────────────────────────────────────────────────
+  - name: myapp-ml-inference
+    description: "ML model inference — custom container image from ECR"
+    handler: ignored                         # handler is unused for CONTAINER runtime
+    runtime: CONTAINER
+    memory: 3008
+    timeout: 900
+    architecture: X86_64
+    role_arn: arn:aws:iam::123456789012:role/myapp-dev-lambda-role
+    code:
+      type: CONTAINER
+      ecr_repo_arn: arn:aws:ecr:us-east-1:123456789012:repository/myapp-ml-inference
+      image_tag: "1.2.0"
+      # Optional: override container CMD / ENTRYPOINT / WORKDIR
+      # image_cmd: ["python", "inference.py"]
+      # image_entrypoint: ["/lambda-entrypoint.sh"]
+      # image_working_directory: "/app"
+    reserved_concurrent_executions: 5
+    ephemeral_storage_size: 4096            # /tmp for large model artefacts
+    log_format: JSON
+    log_retention: 30
+    tracing: ACTIVE
+    tags:
+      team: ml
+      tier: inference
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 7. Inline code — tiny utility function (dev / testing only)
+  #    Inline code is limited to 4 KB and cannot use layers.
+  #    Not suitable for production workloads.
+  # ──────────────────────────────────────────────────────────────────────────
+  - name: myapp-healthcheck
+    description: "Inline health-check function — dev only"
+    handler: index.handler
+    runtime: NODEJS_20_X
+    memory: 128
+    timeout: 5
+    architecture: ARM_64
+    code:
+      type: INLINE
+      inline_code: |
+        exports.handler = async () => ({
+          statusCode: 200,
+          body: JSON.stringify({ status: 'ok', service: 'myapp' }),
+        });
+    log_format: TEXT
+    log_retention: 7
+    tags:
+      team: platform
+      tier: ops

@@ -7,11 +7,13 @@ import aws_cdk as cdk
 
 from config.loader import YamlConfigLoader
 from config.models.iam import IamConfig
+from config.models.lambda_ import LambdaConfig
 from config.models.s3 import S3Config
 from config.models.secrets_manager import SecretsManagerConfig
 from config.models.ssm import SsmConfig
 from logger import get_logger
 from stacks.iam_stack import IamStack
+from stacks.lambda_stack import LambdaStack
 from stacks.s3_stack import S3Stack
 from stacks.secrets_manager_stack import SecretsManagerStack
 from stacks.ssm_stack import SsmStack
@@ -43,6 +45,9 @@ try:
 
     s3_config: S3Config = loader.load("s3", ENV, PROJECT, REGION)
     S3Stack(app, s3_config)
+
+    lambda_config: LambdaConfig = loader.load("lambda", ENV, PROJECT, REGION)
+    LambdaStack(app, lambda_config)
 
     log.info("All stacks synthesized successfully")
     app.synth()
