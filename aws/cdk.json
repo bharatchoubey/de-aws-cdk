@@ -91,6 +91,8 @@
     "@aws-cdk/core:includePrefixInUniqueNameGeneration": true,
     "@aws-cdk/core:validateSnapshotRemovalPolicy": true,
     "@aws-cdk/s3-notifications:addS3TrustKeyPolicyForSnsSubscriptions": true,
-    "@aws-cdk/aws-s3:accessLogsPolicyNotAdded": true
+    "@aws-cdk/aws-s3:accessLogsPolicyNotAdded": true,
+    "@aws-cdk/aws-ec2:noSubnetRouteTableId": true,
+    "@aws-cdk/aws-lambda:snapStartRequirePublish": true
   }
 }
